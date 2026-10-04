@@ -15,6 +15,7 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 
+from codex_remote import __version__
 from codex_remote.config import load_settings
 from codex_remote.activity_log import ActivityLogger
 from codex_remote.handlers.codex import register_codex_handlers
@@ -37,7 +38,11 @@ async def main() -> None:
     setup_logging(settings.log_level)
     logger = logging.getLogger("codex_remote")
 
-    logger.info("Запуск Codex Remote. Каталог по умолчанию: %s", settings.initial_cwd)
+    logger.info(
+        "Запуск Codex Remote v%s. Каталог по умолчанию: %s",
+        __version__,
+        settings.initial_cwd,
+    )
     logger.info("Разрешённые admin ID: %s", settings.allowed_admin_ids)
     activity_logger = ActivityLogger(settings.logs_dir)
     await activity_logger.start()
