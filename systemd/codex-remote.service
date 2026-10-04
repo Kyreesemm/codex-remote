@@ -1,0 +1,11 @@
+[Unit]
+Description=Codex Remote Telegram Bot
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/storage/Dev/Workspace/Python/Codex Remote
+ExecStart="/mnt/storage/Dev/Workspace/Python/Codex Remote/venv/bin/python" bot_worker.py
+EnvironmentFile="/mnt/storage/Dev/Workspace/Python/Codex Remote/.env"
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5

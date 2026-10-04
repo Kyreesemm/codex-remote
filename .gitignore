@@ -1,0 +1,31 @@
+no-public/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python tooling and build artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+*.egg-info/
+build/
+dist/
+.coverage
+.coverage.*
+htmlcov/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+venv/
+.venv/
+logs/
+
+.env
+AGENTS.md
+.session.txt
+.service-reload-notice.json
