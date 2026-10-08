@@ -24,6 +24,7 @@ class UserSession:
     # Isolated state for one administrator identified by user_id.
 
     current_cwd: Path
+    language: str = "ru"
     status: SessionStatus = SessionStatus.IDLE
 
     # Used by /sh for an interactive process under a pseudo-terminal.

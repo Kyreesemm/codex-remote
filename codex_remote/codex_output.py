@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from .i18n import translate
+
 
 @dataclass
 class CodexUsage:
@@ -25,13 +27,17 @@ class CodexUsage:
 class CodexOutputParser:
     # Collect the answer, token usage, and current status from Codex events.
 
-    def __init__(self) -> None:
+    def __init__(self, language: str = "ru") -> None:
+        self.language = language
         self._pending = ""
         self.answer_parts: list[str] = []
         self.thread_id: str | None = None
         self.usage = CodexUsage()
         self.error: str | None = None
-        self.status = "Подготавливаю задачу..."
+        self.status = self._tr("Preparing the task...", "Подготавливаю задачу...")
+
+    def _tr(self, english: str, russian: str) -> str:
+        return russian if self.language == "ru" else english
 
     def feed(self, chunk: bytes) -> None:
         self._pending += chunk.decode("utf-8", errors="replace")
@@ -61,27 +67,27 @@ class CodexOutputParser:
 
         event_type = event.get("type")
         if event_type == "thread.started":
-            self.status = "Подключаюсь к рабочему потоку..."
+            self.status = self._tr("Connecting to the work thread...", "Подключаюсь к рабочему потоку...")
             thread_id = event.get("thread_id")
             if isinstance(thread_id, str):
                 self.thread_id = thread_id
         elif event_type == "turn.started":
-            self.status = "Анализирую задачу..."
+            self.status = self._tr("Analyzing the task...", "Анализирую задачу...")
         elif event_type == "turn.completed":
             usage = event.get("usage") or {}
             self.usage.input_tokens = int(usage.get("input_tokens", 0) or 0)
             self.usage.cached_input_tokens = int(usage.get("cached_input_tokens", 0) or 0)
             self.usage.output_tokens = int(usage.get("output_tokens", 0) or 0)
-            self.status = "Формирую итоговый ответ..."
+            self.status = self._tr("Preparing the final answer...", "Формирую итоговый ответ...")
         elif event_type == "error":
             self.error = str(event.get("message") or event.get("error") or "Unknown error")
-            self.status = f"Ошибка: {self.error}"
+            self.status = (f"Error: {self.error}" if self.language == "en" else f"Ошибка: {self.error}")
         elif event_type in {"item.started", "item.completed"}:
             item = event.get("item") or {}
             self._update_item_status(item, event_type == "item.started")
             if item.get("type") == "error":
                 self.error = str(item.get("message") or item.get("error") or "Unknown error")
-                self.status = f"Ошибка: {self.error}"
+                self.status = (f"Error: {self.error}" if self.language == "en" else f"Ошибка: {self.error}")
             elif item.get("type") == "agent_message" and isinstance(item.get("text"), str):
                 self.answer_parts.append(item["text"])
         elif event_type == "response.output_text.done":
@@ -106,18 +112,18 @@ class CodexOutputParser:
 
         statuses = {
             "command_execution": (
-                "Выполняю команду..." if started else "Проверяю результат команды..."
+                ("Running a command..." if started else "Checking command results...") if self.language == "en" else ("Выполняю команду..." if started else "Проверяю результат команды...")
             ),
             "file_change": (
-                "Вношу изменения в файлы..." if started else "Проверяю внесённые изменения..."
+                ("Changing files..." if started else "Reviewing file changes...") if self.language == "en" else ("Вношу изменения в файлы..." if started else "Проверяю внесённые изменения...")
             ),
             "mcp_tool_call": (
-                "Обращаюсь к инструменту..." if started else "Обрабатываю результат инструмента..."
+                ("Calling a tool..." if started else "Processing tool results...") if self.language == "en" else ("Обращаюсь к инструменту..." if started else "Обрабатываю результат инструмента...")
             ),
             "web_search": (
-                "Ищу информацию..." if started else "Обрабатываю результаты поиска..."
+                ("Searching for information..." if started else "Processing search results...") if self.language == "en" else ("Ищу информацию..." if started else "Обрабатываю результаты поиска...")
             ),
-            "agent_message": "Формирую ответ...",
+            "agent_message": "Формирую ответ..." if self.language == "ru" else "Preparing the answer...",
         }
         status = statuses.get(item_type)
         if status:

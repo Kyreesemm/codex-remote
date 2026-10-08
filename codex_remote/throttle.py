@@ -17,6 +17,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 from .ansi import escape_markdown_code
 from .session import UserSession
+from .i18n import translate
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ class OutputThrottler:
         buf = self._session.output_buffer
         if len(buf) <= self._max_len:
             return buf
-        return "…(обрезано)…\n" + buf[-self._max_len :]
+        return translate(self._session.language, "truncated") + buf[-self._max_len :]
 
     async def _flush(self, force: bool = False) -> None:
         self._dirty = False
@@ -78,7 +79,7 @@ class OutputThrottler:
         if not chunk.strip() and not force:
             return
         header = self._session.status_header or f"🚀 *{self._session.last_command}*\n"
-        body = escape_markdown_code(chunk) or "(нет вывода)"
+        body = escape_markdown_code(chunk) or translate(self._session.language, "empty")
         text = f"{header}```\n{body}{self._session.status_footer}\n```"
 
         try:

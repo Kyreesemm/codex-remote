@@ -29,18 +29,19 @@ from ..codex_output import CodexOutputParser
 from ..pty_manager import PTYProcess
 from ..session import SessionManager, SessionStatus
 from ..throttle import OutputThrottler
+from ..i18n import translate
 
 logger = logging.getLogger(__name__)
 router = Router(name="codex")
 
 
-def _format_elapsed(seconds: float) -> str:
+def _format_elapsed(seconds: float, language: str = "ru") -> str:
     # Format a duration without fractional seconds.
     total_seconds = max(0, int(seconds))
     minutes, remainder = divmod(total_seconds, 60)
     if minutes:
-        return f"{minutes} мин {remainder} сек"
-    return f"{remainder} сек"
+        return f"{minutes} min {remainder} sec" if language == "en" else f"{minutes} мин {remainder} сек"
+    return f"{remainder} sec" if language == "en" else f"{remainder} сек"
 
 
 # The bot must always let Codex modify files in the workspace. This is
@@ -60,6 +61,16 @@ CONFIRM_KEYBOARD = InlineKeyboardMarkup(
 )
 
 
+def _confirm_keyboard(language: str) -> InlineKeyboardMarkup:
+    if language == "ru":
+        return CONFIRM_KEYBOARD
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Yes (y)", callback_data="pty_y"),
+         InlineKeyboardButton(text="❌ No (n)", callback_data="pty_n")],
+        [InlineKeyboardButton(text="⏎ Enter", callback_data="pty_enter")],
+    ])
+
+
 def register_codex_handlers(
     bot: Bot, sessions: SessionManager, settings: Settings,
     activity_logger: ActivityLogger | None = None,
@@ -73,6 +84,9 @@ def register_codex_handlers(
     ) -> None:
         user_id = message.from_user.id
         session = sessions.get(user_id)
+        language = session.language
+        def tr(key: str, **values: object) -> str:
+            return translate(language, key, **values)
         if activity_logger is not None:
             await activity_logger.event("COMMAND", display_cmd, user_id=user_id, chat_id=message.chat.id)
 
@@ -83,8 +97,9 @@ def register_codex_handlers(
             and (session.pty.is_running or session.status == SessionStatus.RUNNING)
         ):
             await message.answer(
-                "⚠️ Процесс уже выполняется. Дождитесь завершения или "
+                (tr("already_running") if language == "en" else "⚠️ Процесс уже выполняется. Дождитесь завершения или "
                 "используйте /clear, чтобы принудительно остановить его."
+                )
             )
             return
 
@@ -107,8 +122,9 @@ def register_codex_handlers(
             if session.pty is not pty_proc:
                 return
             text = (
-                "<b>☁️ Codex начал работу.</b>\n\n"
+                (tr("codex_started", status=html.escape(status)) if language == "en" else "<b>☁️ Codex начал работу.</b>\n\n"
                 f"• <i>{html.escape(status)}</i>"
+                )
             )
             try:
                 await bot.edit_message_text(
@@ -164,8 +180,8 @@ def register_codex_handlers(
                 tail = session.output_buffer[-500:].strip()
                 await bot.send_message(
                     message.chat.id,
-                    f"⚠️ *Требуется подтверждение:*\n```\n{tail}\n```",
-                    reply_markup=CONFIRM_KEYBOARD,
+                    tr("approval_required", tail=tail) if language == "en" else f"⚠️ *Требуется подтверждение:*\n```\n{tail}\n```",
+                    reply_markup=_confirm_keyboard(language),
                     parse_mode="Markdown",
                 )
 
@@ -185,33 +201,33 @@ def register_codex_handlers(
             if parser is None:
                 if shell_mode:
                     session.status_footer = (
-                        f"\n\n• Выполнение завершено, код: {exit_code}"
+                        (tr("execution_done", code=exit_code) if language == "en" else f"\n\n• Выполнение завершено, код: {exit_code}")
                     )
                 await throttler.stop(final=True)
                 if not shell_mode:
                     icon = "🏁" if exit_code == 0 else "💥"
                     await bot.send_message(
                         message.chat.id,
-                        f"{icon} *{display_cmd}* завершена. Код выхода: `{exit_code}`",
+                        tr("command_done", icon=icon, command=display_cmd, code=exit_code) if language == "en" else f"{icon} *{display_cmd}* завершена. Код выхода: `{exit_code}`",
                         parse_mode="Markdown",
                     )
             else:
                 parser.finish()
-                await edit_codex_status("Работа завершена.")
+                await edit_codex_status(tr("codex_finished_status") if language == "en" else "Работа завершена.")
                 # Store the ID only after Codex has created or confirmed the
                 # thread. The next `/codex` command can then resume it.
                 if parser.thread_id is not None and codex_generation == session.codex_generation:
                     session.codex_thread_id = parser.thread_id
                 elapsed = time.monotonic() - started_at
-                answer = parser.answer or parser.error or "(Codex не вернул текстовый ответ.)"
+                answer = parser.answer or parser.error or (tr("codex_empty_answer") if language == "en" else "(Codex не вернул текстовый ответ.)")
                 if exit_code != 0 and parser.error is None:
-                    answer = f"Codex завершился с ошибкой (код {exit_code}).\n\n{answer}"
+                    answer = tr("codex_error_exit", code=exit_code, answer=answer) if language == "en" else f"Codex завершился с ошибкой (код {exit_code}).\n\n{answer}"
                 usage = parser.usage
                 task_tokens = usage.total_tokens
                 if codex_generation == session.codex_generation:
                     session.codex_total_tokens += task_tokens
                 total_tokens = session.codex_total_tokens
-                result_text = (
+                result_text = tr("codex_result", answer=answer, elapsed=_format_elapsed(elapsed, language), task=task_tokens, total=total_tokens) if language == "en" else (
                     "☁️ *Codex завершил задачу.*\n\n"
                     f"{answer}\n\n"
                     f"*• Время:* {_format_elapsed(elapsed)}\n"
@@ -224,20 +240,16 @@ def register_codex_handlers(
                     await message.answer(result_text, parse_mode="Markdown")
                 else:
                     await message.answer(
-                        "☁️ *Codex завершил задачу.*\n\nОтвет слишком длинный для одного "
-                        "сообщения Telegram и будет отправлен частями.",
+                        tr("codex_too_long") if language == "en" else "☁️ *Codex завершил задачу.*\n\nОтвет слишком длинный для одного сообщения Telegram и будет отправлен частями.",
                         parse_mode="Markdown",
                     )
                     for offset in range(0, len(answer), settings.max_message_length):
                         await message.answer(answer[offset : offset + settings.max_message_length])
+                    footer = tr("codex_result_footer", elapsed=_format_elapsed(elapsed, language), task=task_tokens, total=total_tokens) if language == "en" else (
+                        "*• Время:* {elapsed}\n*• Токенов на задачу:* {task}\n*• Токенов всего:* {total}".format(
+                            elapsed=_format_elapsed(elapsed), task=task_tokens, total=total_tokens))
                     await message.answer(
-                        "*• Время:* {elapsed}\n"
-                        "*• Токенов на задачу:* {task}\n"
-                        "*• Токенов всего:* {total}".format(
-                            elapsed=_format_elapsed(elapsed),
-                            task=task_tokens,
-                            total=total_tokens,
-                        ),
+                        footer,
                         parse_mode="Markdown",
                     )
             session.status = SessionStatus.IDLE
@@ -251,8 +263,7 @@ def register_codex_handlers(
                 await throttler.send_initial()
         else:
             status_message = await message.answer(
-                "<b>☁️ Codex начал работу.</b>\n\n"
-                f"• <i>{html.escape(parser.status)}</i>",
+                tr("codex_started", status=html.escape(parser.status)) if language == "en" else "<b>☁️ Codex начал работу.</b>\n\n" f"• <i>{html.escape(parser.status)}</i>",
                 parse_mode="HTML",
             )
             status_message_id = status_message.message_id
@@ -272,7 +283,8 @@ def register_codex_handlers(
     async def cmd_codex(message: Message) -> None:
         prompt = (message.text or "").replace("/codex", "", 1).strip()
         if not prompt:
-            await message.answer("Использование: `/codex <промпт>`", parse_mode="Markdown")
+            session = sessions.get(message.from_user.id)
+            await message.answer(translate(session.language, "codex_usage") if session.language == "en" else "Использование: `/codex <промпт>`", parse_mode="Markdown")
             return
 
         # `codex <prompt>` starts the interactive TUI. Its ANSI redraws cannot
@@ -321,14 +333,15 @@ def register_codex_handlers(
             # In exec mode there is nobody to answer interactive approval.
             # Codex provides a dedicated headless flag for workspace-write.
             argv.extend(["--cd", str(session.current_cwd), "--", prompt])
-        await _launch(message, argv, f"/codex {prompt}", CodexOutputParser())
+        await _launch(message, argv, f"/codex {prompt}", CodexOutputParser(session.language))
 
     @router.message(Command("sh", "shell"))
     async def cmd_shell(message: Message) -> None:
         # Run an arbitrary shell command under a PTY, for example `/sh htop`.
         raw = (message.text or "").split(maxsplit=1)
         if len(raw) < 2:
-            await message.answer("Использование: `/sh <команда>`", parse_mode="Markdown")
+            language = sessions.get(message.from_user.id).language
+            await message.answer(translate(language, "sh_usage") if language == "en" else "Использование: `/sh <команда>`", parse_mode="Markdown")
             return
         session = sessions.get(message.from_user.id)
         shell_command = raw[1].strip()
@@ -356,7 +369,7 @@ def register_codex_handlers(
                 }
             elif env_error:
                 await message.answer(
-                    f"❌ Не удалось активировать окружение:\n```\n{env_error.decode(errors='replace').strip()}\n```",
+                    translate(session.language, "activation_error", error=env_error.decode(errors='replace').strip()) if session.language == "en" else f"❌ Не удалось активировать окружение:\n```\n{env_error.decode(errors='replace').strip()}\n```",
                     parse_mode="Markdown",
                 )
                 return
@@ -373,7 +386,7 @@ def register_codex_handlers(
     async def on_pty_callback(callback: CallbackQuery) -> None:
         session = sessions.get(callback.from_user.id)
         if session.pty is None or not session.pty.is_running:
-            await callback.answer("Процесс не активен.")
+            await callback.answer(translate(session.language, "process_inactive") if session.language == "en" else "Процесс не активен.")
             return
 
         choice = callback.data.split("_", 1)[1]
@@ -385,7 +398,7 @@ def register_codex_handlers(
             await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:  # noqa: BLE001
             pass
-        await callback.answer(f"Отправлено: {choice}")
+        await callback.answer(translate(session.language, "pty_sent", choice=choice) if session.language == "en" else f"Отправлено: {choice}")
 
     @router.message(F.text & ~F.text.startswith("/"))
     async def forward_raw_input(message: Message) -> None:
@@ -394,10 +407,10 @@ def register_codex_handlers(
         if session.pty is not None and session.pty.is_running:
             session.pty.write((message.text or "").encode("utf-8") + b"\n")
             session.status = SessionStatus.RUNNING
-            await message.answer("⌨️ Отправлено в процесс.", disable_notification=True)
+            await message.answer(translate(session.language, "sent_to_process") if session.language == "en" else "⌨️ Отправлено в процесс.", disable_notification=True)
         else:
             await message.answer(
-                "Нет активного процесса. Используйте /codex <промпт> или /help."
+                translate(session.language, "no_active_process") if session.language == "en" else "Нет активного процесса. Используйте /codex <промпт> или /help."
             )
 
     return router
